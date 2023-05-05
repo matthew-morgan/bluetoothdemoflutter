@@ -6,6 +6,9 @@ import 'package:location_permissions/location_permissions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 
+import 'dart:developer' as developer;
+
+
 void main() {
   return runApp(
     const MaterialApp(home: HomePage()),
@@ -35,6 +38,7 @@ class _HomePageState extends State<HomePage> {
 
   void _startScan() async {
 // Platform permissions handling stuff
+    developer.log('starting scan', name: 'my.app.category');
     bool permGranted = false;
     setState(() {
       _scanStarted = true;
@@ -50,8 +54,9 @@ class _HomePageState extends State<HomePage> {
     if (permGranted) {
       _scanStream = flutterReactiveBle
           .scanForDevices(withServices: [serviceUuid]).listen((device) {
-        // Change this string to what you defined in Zephyr
+        // TODO: Change this string to what you defined in arduino
         if (device.name == 'UBIQUE') {
+          developer.log('found ubique', name: 'my.app.category');
           setState(() {
             _ubiqueDevice = device;
             _foundDeviceWaitingToConnect = true;

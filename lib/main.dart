@@ -27,6 +27,8 @@ class _HomePageState extends State<HomePage> {
   bool _scanStarted = false;
   bool _connected = false;
   String _logData = "";
+  String _debugData = "";
+
 
 // Bluetooth related variables
   late DiscoveredDevice _ubiqueDevice;
@@ -35,12 +37,14 @@ class _HomePageState extends State<HomePage> {
 
   //late QualifiedCharacteristic _rxCharacteristic;
   late QualifiedCharacteristic _logDataCharacteristic;
+  late QualifiedCharacteristic _debugDataCharacteristic;
 
 // These are the UUIDs of your device
   final Uuid serviceUuid = Uuid.parse("e280122a-c45b-44dc-a340-d3ac899dc88b");
 
   //final Uuid characteristicUuid = Uuid.parse("40614d40-dab6-49b8-921e-a72261b844ba");
   final Uuid logDataCharacteristicUuid = Uuid.parse("5a8e5d70-7e5e-4a1f-8a2d-5a5e8c5f5ca5"); // Use the UUID of your logDataCharacteristic
+  final Uuid debugDataCharacteristicUuid = Uuid.parse("40614d40-dab6-49b8-921e-a72261b844bb"); // Use the UUID of your debugDataCharacteristic
 
   void _startScan() async {
 // Platform permissions handling stuff
@@ -82,6 +86,7 @@ class _HomePageState extends State<HomePage> {
         case DeviceConnectionState.connected:
           {
             _logDataCharacteristic = QualifiedCharacteristic(serviceId: serviceUuid, characteristicId: logDataCharacteristicUuid, deviceId: event.deviceId);
+            _debugDataCharacteristic = QualifiedCharacteristic(serviceId: serviceUuid, characteristicId: debugDataCharacteristicUuid, deviceId: event.deviceId);
             setState(() {
               _foundDeviceWaitingToConnect = false;
               _connected = true;
@@ -89,7 +94,7 @@ class _HomePageState extends State<HomePage> {
             _subscribeToLogData(); // Add this line
             break;
           }
-        // ... (same as before)
+      // ... (same as before)
       }
     });
   }
@@ -109,73 +114,102 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      //body: Container(),
-      body: Center(child: Text(_logData)),
-      persistentFooterButtons: [
-        // We want to enable this button if the scan has NOT started
-        // If the scan HAS started, it should be disabled.
-        _scanStarted
-            // True condition
-            ? ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  primary: Colors.grey, // background
-                  onPrimary: Colors.white, // foreground
-                ),
-                onPressed: () {},
-                child: const Icon(Icons.search),
-              )
-            // False condition
-            : ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  primary: Colors.blue, // background
-                  onPrimary: Colors.white, // foreground
-                ),
-                onPressed: _startScan,
-                child: const Icon(Icons.search),
-              ),
-        _foundDeviceWaitingToConnect
-            // True condition
-            ? ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  primary: Colors.blue, // background
-                  onPrimary: Colors.white, // foreground
-                ),
-                onPressed: _connectToDevice,
-                child: const Icon(Icons.bluetooth),
-              )
-            // False condition
-            : ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  primary: Colors.grey, // background
-                  onPrimary: Colors.white, // foreground
-                ),
-                onPressed: () {},
-                child: const Icon(Icons.bluetooth),
-              ),
-        _connected
-            // True condition
-            ? ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  primary: Colors.blue, // background
-                  onPrimary: Colors.white, // foreground
-                ),
-                onPressed: _subscribeToLogData,
-                child: const Icon(Icons.celebration_rounded),
-              )
-            // False condition
-            : ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  primary: Colors.grey, // background
-                  onPrimary: Colors.white, // foreground
-                ),
-                onPressed: () {},
-                child: const Icon(Icons.celebration_rounded),
-              ),
-      ],
-    );
+  void _subscribeToDebugData() {
+    developer.log('subscribing to debug data', name: 'my.app.category');
+    flutterReactiveBle.subscribeToCharacteristic(_debugDataCharacteristic).listen((data) {
+      String receivedData = String.fromCharCodes(data);
+      developer.log('received debug data: ' + receivedData, name: 'my.app.category');
+      setState(() {
+        _debugData = receivedData; // Update debug data
+      });
+    });
   }
-}
+
+@override
+Widget build(BuildContext context) {
+  return Scaffold(
+    backgroundColor: Colors.white,
+    //body: Container(),
+    body: Center(child: Text(_logData)),
+    persistentFooterButtons: [
+      // We want to enable this button if the scan has NOT started
+      // If the scan HAS started, it should be disabled.
+      _scanStarted
+      // True condition
+          ? ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.grey, // background
+          foregroundColor: Colors.white, // foreground
+        ),
+        onPressed: () {},
+        child: const Icon(Icons.search),
+      )
+      // False condition
+          : ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.blue, // background
+          foregroundColor: Colors.white, // foreground
+        ),
+        onPressed: _startScan,
+        child: const Icon(Icons.search),
+      ),
+      _foundDeviceWaitingToConnect
+      // True condition
+          ? ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.blue, // background
+          foregroundColor: Colors.white, // foreground
+        ),
+        onPressed: _connectToDevice,
+        child: const Icon(Icons.bluetooth),
+      )
+      // False condition
+          : ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.grey, // background
+          foregroundColor: Colors.white, // foreground
+        ),
+        onPressed: () {},
+        child: const Icon(Icons.bluetooth),
+      ),
+      _connected
+      // True condition
+          ? ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.blue, // background
+          foregroundColor: Colors.white, // foreground
+        ),
+        onPressed: _subscribeToLogData,
+        child: const Icon(Icons.celebration_rounded),
+      )
+      // False condition
+          : ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.grey, // background
+          foregroundColor: Colors.white, // foreground
+        ),
+        onPressed: () {},
+        child: const Icon(Icons.celebration_rounded),
+      ),
+      _connected
+      // True condition
+          ? ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.blue, // background
+          foregroundColor: Colors.white, // foreground
+        ),
+        onPressed: _subscribeToDebugData, // Subscribe to debug data when button is pressed
+        child: const Icon(Icons.bug_report), // Change this icon as per your requirement
+      )
+      // False condition
+          : ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.grey, // background
+          foregroundColor: Colors.white, // foreground
+        ),
+        onPressed: () {},
+        child: const Icon(Icons.bug_report), // Change this icon as per your requirement
+      ),
+    ],
+  );
+}}

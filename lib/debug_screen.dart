@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
 class DebugScreen extends StatelessWidget {
-  final String debugData;
+  String debugData = "Waiting for debug data...";
 
-  DebugScreen({required this.debugData});
+  DebugScreen({super.key, required this.debugData});
 
   @override
   Widget build(BuildContext context) {

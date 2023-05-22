@@ -1,9 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:io' show Platform;
-
 import 'package:location_permissions/location_permissions.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 
 import 'dart:developer' as developer;
@@ -29,7 +29,7 @@ class _HomePageState extends State<HomePage> {
   bool _scanStarted = false;
   bool _connected = false;
   String _logData = "";
-  String _debugData = "";
+  String debugData = "";
   String peripheralName = "TRUNDLE9000";
 
 // Bluetooth related variables
@@ -63,7 +63,7 @@ class _HomePageState extends State<HomePage> {
     }
     // Main scanning logic
     if (permGranted) {
-      _scanStream = flutterReactiveBle.scanForDevices(withServices: [serviceUuid]).listen((device) {
+      _scanStream = flutterReactiveBle.scanForDevices(withServices: [serviceUuid], scanMode: ScanMode.lowLatency).listen((device) {
         if (device.name == peripheralName) {
           developer.log('found TRUNDLE9000', name: 'my.app.category');
           setState(() {
@@ -76,28 +76,102 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _connectToDevice() {
-    // We're done scanning, we can cancel it
+    // scanning is done, we can cancel it
     _scanStream.cancel();
-    // Let's listen to our connection so we can make updates on a state change
-    Stream<ConnectionStateUpdate> _currentConnectionStream = flutterReactiveBle
-        .connectToAdvertisingDevice(id: _peripheralDevice.id, prescanDuration: const Duration(seconds: 1), withServices: [serviceUuid, logDataCharacteristicUuid]);
-    _currentConnectionStream.listen((event) {
+
+    // listen to our connection so we can make updates on a state change
+    Stream<ConnectionStateUpdate> currentConnectionStream = flutterReactiveBle.connectToAdvertisingDevice(
+        id: _peripheralDevice.id, prescanDuration: const Duration(seconds: 7), withServices: [serviceUuid, logDataCharacteristicUuid, debugDataCharacteristicUuid]);
+    currentConnectionStream.listen((event) {
       switch (event.connectionState) {
         case DeviceConnectionState.connected:
           {
             _logDataCharacteristic = QualifiedCharacteristic(serviceId: serviceUuid, characteristicId: logDataCharacteristicUuid, deviceId: event.deviceId);
             _debugDataCharacteristic = QualifiedCharacteristic(serviceId: serviceUuid, characteristicId: debugDataCharacteristicUuid, deviceId: event.deviceId);
+            //TODO: this method of state handling is very messy.
+            // Reactive BLE returns nice streams that you should be subscribing to to handle state change,
+            // but for the purpose of this we'll just be using the setState() call.
             setState(() {
               _foundDeviceWaitingToConnect = false;
               _connected = true;
             });
-            _subscribeToLogData(); // Add this line
-            _subscribeToDebugData(context); // Add this line
+
+            // Subscribe to notifications from debugDataCharacteristic
+            _subscribeToDebugData(context);
             break;
           }
-        // ... (same as before)
+        case DeviceConnectionState.connecting:
+          // TODO: Handle this case.
+          break;
+        case DeviceConnectionState.disconnecting:
+          // TODO: Handle this case.
+          break;
+        case DeviceConnectionState.disconnected:
+          // TODO: Handle this case.
+          break;
       }
     });
+  }
+
+  void _subscribeToDebugData(BuildContext context) {
+    developer.log('subscribing to debug data', name: 'my.app.category');
+
+    int expectedLength = 0;
+    String buffer = "";
+
+    flutterReactiveBle.subscribeToCharacteristic(_debugDataCharacteristic).listen((data) {
+      String receivedData = String.fromCharCodes(data);
+      if (expectedLength == 0) { // If expectedLength has not been set yet, try to parse it
+        try {
+          expectedLength = int.parse(receivedData);
+        } catch (e) {
+          developer.log('Error parsing message length: $e', name: 'my.app.category');
+        }
+      } else { // If expectedLength has been set, append the data to the buffer
+        buffer += receivedData;
+        if (buffer.length >= expectedLength) { // If we've received all the expected data, parse it as JSON
+          try {
+            var parsed = json.decode(buffer); // Try to parse the JSON
+            setState(() {
+              this.debugData = parsed;
+            });
+            developer.log('received debug data: $debugData', name: 'my.app.category');
+
+            // Reset the buffer and expectedLength for the next message
+            buffer = "";
+            expectedLength = 0;
+          } catch (e) {
+            developer.log('Error parsing debug data: $e', name: 'my.app.category');
+          }
+        }
+      }
+    });
+  }
+
+
+  String stitchChunks(List<String> chunks) {
+    // Create a new string to hold the stitched data.
+    String stitchedString = "";
+
+    // Iterate over the chunks and add each chunk to the new string.
+    for (String chunk in chunks) {
+      stitchedString += chunk;
+    }
+
+    // Return the new string.
+    return stitchedString;
+  }
+
+
+  void _navigateToDebugScreen(BuildContext context) {
+    // Navigate to the DebugScreen with the latest debug data
+    developer.log('navigating to debug screen', name: 'my.app.category');
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => DebugScreen(debugData: debugData),
+      ),
+    );
   }
 
   void _subscribeToLogData() {
@@ -114,24 +188,6 @@ class _HomePageState extends State<HomePage> {
       });
     });
   }
-
-  void _subscribeToDebugData(BuildContext context) {
-    developer.log('subscribing to debug data', name: 'my.app.category');
-    flutterReactiveBle.subscribeToCharacteristic(_debugDataCharacteristic).listen((data) {
-      String receivedData = String.fromCharCodes(data);
-      developer.log('received debug data: $receivedData', name: 'my.app.category');
-
-      // Navigate to the DebugScreen with the latest debug data
-      developer.log('navigating to debug screen', name: 'my.app.category');
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => DebugScreen(debugData: receivedData),
-        ),
-      );
-    });
-  }
-
 
   @override
   Widget build(BuildContext context) {
@@ -207,7 +263,7 @@ class _HomePageState extends State<HomePage> {
                   foregroundColor: Colors.white, // foreground
                 ),
                 // Subscribe to debug data when button is pressed
-                onPressed: () => _subscribeToDebugData(context),
+                onPressed: () => _navigateToDebugScreen(context),
                 child: const Icon(Icons.bug_report), // Change this icon as per your requirement
               )
             // False condition

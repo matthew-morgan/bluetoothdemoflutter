@@ -29,8 +29,11 @@ class _HomePageState extends State<HomePage> {
   bool _scanStarted = false;
   bool _connected = false;
   String _logData = "";
-  String debugData = "";
+  Map<String, dynamic> debugData = {};
+  int _expectedLength = 0;
+  Map<String, dynamic> _logDataMap = {};
   String peripheralName = "TRUNDLE9000";
+  String buffer = '';
 
 // Bluetooth related variables
   late DiscoveredDevice _peripheralDevice;
@@ -115,38 +118,48 @@ class _HomePageState extends State<HomePage> {
 
   void _subscribeToDebugData(BuildContext context) {
     developer.log('subscribing to debug data', name: 'my.app.category');
-
-    int expectedLength = 0;
     String buffer = "";
 
     flutterReactiveBle.subscribeToCharacteristic(_debugDataCharacteristic).listen((data) {
-      String receivedData = String.fromCharCodes(data);
-      if (expectedLength == 0) { // If expectedLength has not been set yet, try to parse it
-        try {
-          expectedLength = int.parse(receivedData);
-        } catch (e) {
-          developer.log('Error parsing message length: $e', name: 'my.app.category');
-        }
-      } else { // If expectedLength has been set, append the data to the buffer
-        buffer += receivedData;
-        if (buffer.length >= expectedLength) { // If we've received all the expected data, parse it as JSON
-          try {
-            var parsed = json.decode(buffer); // Try to parse the JSON
-            setState(() {
-              this.debugData = parsed;
-            });
-            developer.log('received debug data: $debugData', name: 'my.app.category');
+      buffer += String.fromCharCodes(data);
+      developer.log('buffer: $buffer', name: 'my.app.category');
 
-            // Reset the buffer and expectedLength for the next message
-            buffer = "";
-            expectedLength = 0;
-          } catch (e) {
-            developer.log('Error parsing debug data: $e', name: 'my.app.category');
+      // Check if the buffer contains a newline
+      int newlineIndex = buffer.indexOf('\n');
+      if (newlineIndex != -1) {
+        // Try to parse the substring up to the newline as the length
+        int? length = int.tryParse(buffer.substring(0, newlineIndex));
+        if(length != null) {
+          // We have a valid length, so we wait for that much data to accumulate before processing
+          if(buffer.length >= length + newlineIndex + 1) {
+            String message = buffer.substring(newlineIndex + 1, newlineIndex + length + 1);
+            // Now process the 'message' which should contain the whole JSON string
+            try {
+              var parsed = json.decode(message); // Try to parse the JSON
+              setState(() {
+                this.debugData = parsed;
+              });
+              developer.log('received debug data: $debugData', name: 'my.app.category');
+
+              // Remove the processed message and length from the buffer
+              buffer = buffer.substring(newlineIndex + length + 1);
+            } catch (e) {
+              // If parsing fails, log the error.
+              developer.log('Failed parsing message: $message', name: 'my.app.category');
+              developer.log('Error parsing debug data: $e', name: 'my.app.category');
+            }
           }
+        } else {
+          // We didn't get a valid length, this shouldn't happen if the Arduino is sending the length correctly.
+          developer.log('Failed parsing length: ${buffer.substring(0, newlineIndex)}', name: 'my.app.category');
+          // You might want to clear the buffer here to prevent it from growing indefinitely
+          buffer = "";
         }
       }
     });
   }
+
+
 
 
   String stitchChunks(List<String> chunks) {
@@ -176,18 +189,40 @@ class _HomePageState extends State<HomePage> {
 
   void _subscribeToLogData() {
     developer.log('subscribing to log data', name: 'my.app.category');
-    // Subscribe to notifications from logDataCharacteristic
+
     flutterReactiveBle.subscribeToCharacteristic(_logDataCharacteristic).listen((data) {
       // Convert received data to string
       String receivedData = String.fromCharCodes(data);
-      developer.log('received data: ' + receivedData, name: 'my.app.category');
-      setState(() {
-        // Append received data to _logData
-        _logData += receivedData;
-        developer.log('received data: ' + receivedData, name: 'my.app.category');
-      });
+      buffer += receivedData;
+
+      if (buffer.contains('{') && _expectedLength == 0) {
+        int endOfLength = buffer.indexOf('{');
+        _expectedLength = int.tryParse(buffer.substring(0, endOfLength)) ?? 0;
+        buffer = buffer.substring(endOfLength);
+      }
+
+      if (_expectedLength > 0 && buffer.length >= _expectedLength) {
+        String jsonData = buffer.substring(0, _expectedLength);  // parse this data as json
+        buffer = buffer.substring(_expectedLength);
+        _expectedLength = 0;
+
+        try {
+          developer.log('Attempting to parse: $jsonData', name: 'my.app.category');
+          Map<String, dynamic> logData = jsonDecode(jsonData);
+          developer.log('received log data: ${jsonEncode(logData)}', name: 'my.app.category');
+          setState(() {
+            // Process logData as required
+          });
+        } catch (e) {
+          developer.log('Failed parsing message: $jsonData', name: 'my.app.category');
+          developer.log('Error parsing log data: $e', name: 'my.app.category');
+        }
+      }
     });
   }
+
+
+
 
   @override
   Widget build(BuildContext context) {

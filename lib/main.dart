@@ -6,13 +6,23 @@ import 'dart:io' show Platform;
 import 'package:location_permissions/location_permissions.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+
 import 'dart:developer' as developer;
 
 import 'debug_screen.dart';
 
 void main() {
+  initFirebase();
   return runApp(
     const MaterialApp(home: HomePage()),
+  );
+}
+
+Future<void> initFirebase() async {
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
   );
 }
 

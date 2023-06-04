@@ -1,20 +1,16 @@
 import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:io' show Platform;
 import 'package:location_permissions/location_permissions.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
-
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
-
 import 'dart:developer' as developer;
-
 import 'debug_screen.dart';
 
 void main() {
-  initFirebase();
+  //initFirebase();
   return runApp(
     const MaterialApp(home: HomePage()),
   );
@@ -44,6 +40,9 @@ class _HomePageState extends State<HomePage> {
   Map<String, dynamic> _logDataMap = {};
   String peripheralName = "TRUNDLE9000";
   String buffer = '';
+  String _displayMessage = 'Press the looking glass symbol to start scan';
+  bool _isMeasurementActive = false;
+
 
 // Bluetooth related variables
   late DiscoveredDevice _peripheralDevice;
@@ -52,6 +51,7 @@ class _HomePageState extends State<HomePage> {
 
   late QualifiedCharacteristic _logDataCharacteristic;
   late QualifiedCharacteristic _debugDataCharacteristic;
+  late QualifiedCharacteristic _commandCharacteristic;
 
   // UUID of this device
   final Uuid serviceUuid = Uuid.parse("e280122a-c45b-44dc-a340-d3ac899dc88b");
@@ -59,8 +59,38 @@ class _HomePageState extends State<HomePage> {
   //final Uuid characteristicUuid = Uuid.parse("40614d40-dab6-49b8-921e-a72261b844ba");
   final Uuid logDataCharacteristicUuid = Uuid.parse("5a8e5d70-7e5e-4a1f-8a2d-5a5e8c5f5ca5");
   final Uuid debugDataCharacteristicUuid = Uuid.parse("40614d40-dab6-49b8-921e-a72261b844bb");
+  final Uuid commandCharacteristicUuid = Uuid.parse("b4720eaa-d15e-4252-8e58-7ae9fb7fbb47");
 
   void _startScan() async {
+    final FlutterReactiveBle _ble = FlutterReactiveBle();
+    final statusStream = _ble.statusStream;
+
+    statusStream.listen((status) async {
+      switch (status) {
+        case BleStatus.ready:
+          try {
+            _scanForDevices();
+          } catch (e) {
+            if (e is GenericFailure<ScanFailure>) {
+              print('Failed to start scan: ${e.message}');
+            } else {
+              rethrow;
+            }
+          }
+          break;
+        case BleStatus.unauthorized:
+        // TODO: show a dialog or a different UI to inform the user that the app is not authorized for BLE operation
+          break;
+        case BleStatus.poweredOff:
+          _showBluetoothDialog(context);
+          break;
+        default:
+          break;
+      }
+    });
+  }
+
+  void _scanForDevices() async {
     // Platform permissions handling stuff
     developer.log('starting scan', name: 'my.app.category');
     bool permGranted = false;
@@ -88,9 +118,9 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  void _connectToDevice() {
+  Future<void> _connectToDevice() async {
     // scanning is done, we can cancel it
-    _scanStream.cancel();
+    await _scanStream.cancel();
 
     // listen to our connection so we can make updates on a state change
     Stream<ConnectionStateUpdate> currentConnectionStream = flutterReactiveBle.connectToAdvertisingDevice(
@@ -101,6 +131,7 @@ class _HomePageState extends State<HomePage> {
           {
             _logDataCharacteristic = QualifiedCharacteristic(serviceId: serviceUuid, characteristicId: logDataCharacteristicUuid, deviceId: event.deviceId);
             _debugDataCharacteristic = QualifiedCharacteristic(serviceId: serviceUuid, characteristicId: debugDataCharacteristicUuid, deviceId: event.deviceId);
+            _commandCharacteristic = QualifiedCharacteristic(serviceId: serviceUuid, characteristicId: commandCharacteristicUuid, deviceId: event.deviceId);
             //TODO: this method of state handling is very messy.
             // Reactive BLE returns nice streams that you should be subscribing to to handle state change,
             // but for the purpose of this we'll just be using the setState() call.
@@ -108,7 +139,6 @@ class _HomePageState extends State<HomePage> {
               _foundDeviceWaitingToConnect = false;
               _connected = true;
             });
-
             // Subscribe to notifications from debugDataCharacteristic
             _subscribeToDebugData(context);
             break;
@@ -162,15 +192,12 @@ class _HomePageState extends State<HomePage> {
         } else {
           // We didn't get a valid length, this shouldn't happen if the Arduino is sending the length correctly.
           developer.log('Failed parsing length: ${buffer.substring(0, newlineIndex)}', name: 'my.app.category');
-          // You might want to clear the buffer here to prevent it from growing indefinitely
+          // Clear the buffer here to prevent it from growing indefinitely
           buffer = "";
         }
       }
     });
   }
-
-
-
 
   String stitchChunks(List<String> chunks) {
     // Create a new string to hold the stitched data.
@@ -184,7 +211,6 @@ class _HomePageState extends State<HomePage> {
     // Return the new string.
     return stitchedString;
   }
-
 
   void _navigateToDebugScreen(BuildContext context) {
     // Navigate to the DebugScreen with the latest debug data
@@ -230,9 +256,6 @@ class _HomePageState extends State<HomePage> {
       }
     });
   }
-
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -320,7 +343,78 @@ class _HomePageState extends State<HomePage> {
                 onPressed: () {},
                 child: const Icon(Icons.bug_report), // Change this icon as per your requirement
               ),
+        // Your new button
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: _isMeasurementActive ? Colors.red : Colors.green, // Change color based on state
+            foregroundColor: Colors.white, // foreground
+          ),
+          onPressed: _toggleMeasurement,
+          child: Icon(_isMeasurementActive ? Icons.stop : Icons.play_arrow), // Change icon based on state
+        ),
+
       ],
     );
   }
+
+  void _showBluetoothDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Bluetooth is turned off'),
+          content: Text('Please enable Bluetooth to use this feature.'),
+          actions: [
+            TextButton(
+              child: Text('OK'),
+              onPressed: () {
+                // TODO: handle the user's response
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _toggleMeasurement() async {
+    String message;
+    if (!_isMeasurementActive) {
+      message = "start_measurement";
+    } else {
+      message = "stop_measurement";
+    }
+
+    List<int> bytes = utf8.encode(message);
+
+    // Define the characteristic you are going to write
+    final characteristic = QualifiedCharacteristic(
+      serviceId: Uuid.parse("e280122a-c45b-44dc-a340-d3ac899dc88b"), // replace with your service UUID
+      characteristicId: Uuid.parse("b4720eaa-d15e-4252-8e58-7ae9fb7fbb47"), // replace with your characteristic UUID
+      deviceId: _peripheralDevice.id,
+    );
+
+    await flutterReactiveBle.writeCharacteristicWithResponse(characteristic, value: bytes);
+
+    // Now get the confirmation message
+    List<int> value = await flutterReactiveBle.readCharacteristic(characteristic);
+
+    // Convert bytes to string
+    String receivedMessage = utf8.decode(value);
+
+    // Compare received message to expected confirmation
+    if (_isMeasurementActive && receivedMessage == "confirmed_stop_measurement") {
+      // If we were stopping and got the stop confirmation, update state
+      setState(() {
+        _isMeasurementActive = false;
+      });
+    } else if (!_isMeasurementActive && receivedMessage == "confirmed_start_measurement") {
+      // If we were starting and got the start confirmation, update state
+      setState(() {
+        _isMeasurementActive = true;
+      });
+    }
+  }
+
 }
